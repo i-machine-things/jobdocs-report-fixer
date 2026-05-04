@@ -1155,6 +1155,20 @@ class ReportingModule(BaseModule):
 
         self.show_info("Multi-Customer Export Complete", summary)
 
+    def _extract_dpas_ratings(self, source_df: 'pd.DataFrame') -> list:
+        """Scan all source columns for DPAS rating patterns (e.g. DX-A3, DO-B1).
+        Returns a positional list aligned with source_df rows."""
+        pattern = re.compile(r'\bD[OX]-[A-Z]\d+\b', re.IGNORECASE)
+        ratings = [''] * len(source_df)
+        for col in source_df.columns:
+            col_values = source_df[col].astype(str).tolist()
+            for i, val in enumerate(col_values):
+                if not ratings[i]:
+                    match = pattern.search(val)
+                    if match:
+                        ratings[i] = match.group(0).upper()
+        return ratings
+
     def _filter_letter_suffix_jobs(self, df: 'pd.DataFrame') -> 'pd.DataFrame':
         """Remove rows where Job ID ends in a letter (e.g. 12345A, 67890B).
         These are sub-jobs that should not appear in customer reports."""
@@ -1230,6 +1244,21 @@ class ReportingModule(BaseModule):
 
             unique_pos = df_fixed['Customer PO Number'].nunique()
             self._log(f"Updated dates for {unique_pos} unique POs")
+
+        # Extract DPAS ratings and populate Classification column
+        dpas_ratings = self._extract_dpas_ratings(source_df)
+        dpas_found = sum(1 for r in dpas_ratings if r)
+        if dpas_found > 0:
+            self._log(f"Detected {dpas_found} DPAS rating(s) — populating Classification column")
+            if 'Classification' not in df_fixed.columns:
+                df_fixed['Classification'] = ''
+            col_vals = df_fixed['Classification'].tolist()
+            for i, rating in enumerate(dpas_ratings):
+                if rating:
+                    existing = col_vals[i]
+                    if existing is None or str(existing).strip() in ('', 'nan', 'None'):
+                        col_vals[i] = rating
+            df_fixed['Classification'] = col_vals
 
         return df_fixed
 
